@@ -159,6 +159,7 @@ static void Step1 (void)
 
 static char prefix[30];
 static bool newLine;
+static unsigned pc = 0;/* program counter */
 
 static int GetNameIndex (STR str, bool def, bool *local)
 {
@@ -199,11 +200,13 @@ static void PrintPrefix (LEX *lex)
 {
    if (newLine)
    {
-      printf ("%3u%10s", lex->line, " ");
+      printf ("%3u%6s", lex->line, " ");
       newLine = false;
    }
    else
-      printf ("%13s", " ");
+      printf ("%9s", " ");
+   printf ("%3u ", 2*pc);
+   pc++;
 }
 static void Load (LEX *lex, bool def)
 {
@@ -246,9 +249,6 @@ static void Store (LEX *lex, bool def)
    printf ("STORE_%s          %u (%s)\n",
             nameType, j, lex->string);
 }
-
-static LEX resLex = {RESULT, "result", 0, NONE};
-static const LEX_EX result = {&resLex, 0};
 
 static void Step2(void)
 {
