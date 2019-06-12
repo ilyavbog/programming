@@ -94,7 +94,7 @@ typedef struct LEX_
 
 typedef struct STR_LIST_
 {
-   STR      *s;
+   char     **s;
    unsigned n;
 } STR_LIST;
 

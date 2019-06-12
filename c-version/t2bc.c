@@ -10,7 +10,7 @@ LEX in[] = {
 
 static PrintRPN (void);
 
-STR buf1[128], buf2[128], buf3[128];
+char *buf1[128], *buf2[128], *buf3[128];
 STR_LIST constList = {buf1, 0};
 STR_LIST globalList = {buf2, 0};
 STR_LIST localList = {buf3, 0};
@@ -179,7 +179,7 @@ static int GetNameIndex (STR str, bool def, bool *local)
    for (i=0; i<globalList.n; i++)
       if (strcmp (globalList.s[i], str) == 0)
          return i;
-   strcpy (globalList.s[i], str);
+   globalList.s[i] = str;
    globalList.n++;
    return i;
 }
@@ -191,12 +191,12 @@ static int GetConstIndex (STR_LIST *list, STR str)
    for (i=0; i<list->n; i++)
       if (strcmp (list->s[i], str) == 0)
          return i;
-   strcpy (list->s[i], str);
+   list->s[i] = str;
    list->n++;
    return i;
 }
 
-static void PrintPrefix (LEX *lex)
+static void PrintPrefix (const LEX *lex)
 {
    if (newLine)
    {
