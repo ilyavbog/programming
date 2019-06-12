@@ -130,3 +130,13 @@ do {                             \
 
 #define Pop(stack_) \
    (stack_.n--, &stack_.lex[stack_.n])
+
+/*-------------------------------------------*/
+
+typedef struct BYTECODE_ {
+   int  line; /* source line number or -1 */
+   int  pc;
+   char *comm;
+   int  param;
+   char *comment;
+} BYTECODE;

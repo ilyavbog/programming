@@ -8,7 +8,7 @@ LEX in[] = {
    #include "token2.inc"
 };
 
-static PrintRPN (void);
+BYTECODE *out;
 
 char *buf1[128], *buf2[128], *buf3[128];
 STR_LIST constList = {buf1, 0};
@@ -134,15 +134,25 @@ static void Step1 (void)
                leftPart = false;
             }
 
-            while (stack.n && TOS(stack)->type == OP &&
-                   TOS(stack)->op < lexEx.priority)
-               if (in[i].op != LPAR)
-                  Push(rpn, Pop(stack));
-               else
-                  Pop(stack);
-
-            if (in[i].op > RPAR)
+            if (in[i].op == LPAR)
                Push(stack, &lexEx);
+            else if (in[i].op == RPAR)
+            {
+               while (stack.n && TOS(stack)->type == OP &&
+                      TOS(stack)->op != LPAR)
+                  Push(rpn, Pop(stack));
+               Pop(stack);
+            }
+            else
+            {
+               while (stack.n && TOS(stack)->type == OP &&
+                      TOS(stack)->op <= lexEx.priority)
+                  if (TOS(stack)->op != LPAR)
+                     Push(rpn, Pop(stack));
+                  else
+                     break;
+               Push(stack, &lexEx);
+            }
             break;
          case NEWLINE:
             while (stack.n)
@@ -157,9 +167,8 @@ static void Step1 (void)
    }
 }
 
-static char prefix[30];
 static bool newLine;
-static unsigned pc = 0;/* program counter */
+static int pc = -1;/* program counter */
 
 static int GetNameIndex (STR str, bool def, bool *local)
 {
@@ -198,15 +207,17 @@ static int GetConstIndex (STR_LIST *list, STR str)
 
 static void PrintPrefix (const LEX *lex)
 {
+   pc++;
    if (newLine)
    {
-      printf ("%3u%6s", lex->line, " ");
+      out[pc].line = lex->line;
       newLine = false;
    }
    else
-      printf ("%9s", " ");
-   printf ("%3u ", 2*pc);
-   pc++;
+      out[pc].line = -1;
+   out[pc].pc = pc;
+   out[pc].param = -1;
+   out[pc].comment = NULL;
 }
 static void Load (LEX *lex, bool def)
 {
@@ -222,14 +233,15 @@ static void Load (LEX *lex, bool def)
    {
       case NUMBER: case STRING:
          j = GetConstIndex (&constList, lex->string);
-         printf ("LOAD_CONST          %u (%s)\n",
-                  j, lex->string);
+         out[pc].comm = "LOAD_CONST";
+         out[pc].param = j;
+         out[pc].comment = lex->string;
          break;
       case NAME:
          j = GetNameIndex (lex->string, def, &local);
-         nameType = def ? (local ? "FAST  " : "GLOBAL") : ("NAME  ");
-         printf ("LOAD_%s         %u (%s)\n",
-                  nameType, j, lex->string);
+         out[pc].comm = def ? (local ? "LOAD_FAST" : "LOAD_GLOBAL") : ("LOAD_NAME");
+         out[pc].param = j;
+         out[pc].comment = lex->string;
          break;
       default:
          assert(0);
@@ -244,10 +256,10 @@ static void Store (LEX *lex, bool def)
 
    assert (lex->type == NAME);
    j = GetNameIndex (lex->string, def, &local);
-   nameType = def ? "FAST" : "NAME";
    PrintPrefix (lex);
-   printf ("STORE_%s          %u (%s)\n",
-            nameType, j, lex->string);
+   out[pc].comm = def ? "STORE_FAST" : "STORE_NAME";
+   out[pc].param = j;
+   out[pc].comment = lex->string;
 }
 
 static void Step2(void)
@@ -281,21 +293,21 @@ static void Step2(void)
                   switch (rpn.lex[i].l->op)
                   {
                      case PERCENTEQUAL:    /* %=   */
-                           printf ("INPLACE_MODULO\n"); break;
+                           out[pc].comm = "INPLACE_MODULO"; break;
                      case AMPEREQUAL:      /* &=   */
-                           printf ("INPLACE_AND\n"); break;
+                           out[pc].comm = "INPLACE_AMD"; break;
                      case DOUBLESTAREQUAL: /* **=  */
-                           printf ("INPLACE_POWER\n"); break;
+                           out[pc].comm = "INPLACE_POWER"; break;
                      case STAREQUAL:       /* *=   */
-                           printf ("INPLACE_MULTIPLY\n"); break;
+                           out[pc].comm = "INPLACE_MULTIPLY"; break;
                      case PLUSEQUAL:       /* +=   */
-                           printf ("INPLACE_ADD\n"); break;
+                           out[pc].comm = "INPLACE_ADD"; break;
                      case MINEQUAL:        /* -=   */
-                           printf ("INPLACE_SUBTRACT\n"); break;
+                           out[pc].comm = "INPLACE_SUBTRACT"; break;
                      case DOUBLESLASHEQUAL:/* //=  */
-                           printf ("INPLACE_FLOOR_DIVIDE\n"); break;
+                           out[pc].comm = "INPLACE_FLOOR_DIVIDE"; break;
                      case SLASHEQUAL:      /* /=   */
-                           printf ("INPLACE_TRUE_DIVIDE\n"); break;
+                           out[pc].comm = "INPLACE_TRUE_DIVIDE"; break;
                   }
                }
                assert (stack.n > 0);
@@ -312,23 +324,24 @@ static void Step2(void)
                {
                   case PLUS: /* + */
                      if (rpn.lex[i].priority == TILDE)
-                        printf ("UNARY_POSITIVE\n");
+                        out[pc].comm = "UNARY_POSITIVE";
                      else
-                        printf ("BINARY_ADD\n");
+                        out[pc].comm = "BINARY_ADD";
                      break;
                   case MINUS: /* - */
                      if (rpn.lex[i].priority == TILDE)
-                        printf ("UNARY_NEGATIVE\n");
+                        out[pc].comm = "UNARY_NEGATIVE";
                      else
-                     printf ("BINARY_SUBTRACT\n"); break;
+                        out[pc].comm = "BINARY_SUBTRACT";
+                     break;
                   case STAR: /* * */
-                     printf ("BINARY_MULTIPLY\n"); break;
+                     out[pc].comm = "BINARY_MULTIPLY"; break;
                   case SLASH: /* / */
-                     printf ("BINARY_TRUE_DIVIDE\n"); break;
+                     out[pc].comm = "BINARY_TRUE_DIVIDE"; break;
                   case DOUBLESLASH: /* // */
-                     printf ("BINARY_FLOOR_DIVIDE\n"); break;
+                     out[pc].comm = "BINARY_FLOOR_DIVIDE"; break;
                   case PERCENT: /* % */
-                     printf ("BINARY_MODULO\n"); break;
+                     out[pc].comm = "BINARY_MODULO"; break;
 
                   case LESS: /* < */
                      opNum = 0; opName = "<"; goto any_compare;
@@ -343,7 +356,9 @@ static void Step2(void)
                   case EQEQUAL: /* == */
                      opNum = 2; opName = "==";
                any_compare:
-                     printf ("COMPARE_OP          %u (%s)\n", opNum, opName);
+                     out[pc].comm = "COMPARE_OP";
+                     out[pc].param = opNum;
+                     out[pc].comment = opName;
                      break;
 
                   default:
@@ -353,7 +368,6 @@ static void Step2(void)
             break;
 
          case NEWLINE:
-            printf ("\n");
             newLine = true;
             break;
 
@@ -363,22 +377,69 @@ static void Step2(void)
             newLine = false;
             j = GetConstIndex (&constList, "None");
             PrintPrefix (rpn.lex[i].l);
-            printf ("LOAD_CONST          %u (None)\n", j);
+            out[pc].comm = "LOAD_CONST";
+            out[pc].param = j;
+            out[pc].comment = "None";
             PrintPrefix (rpn.lex[i].l);
-            printf ("RETURN_VALUE\n");
+            out[pc].comm = "RETURN_VALUE";
+            out[pc].param = -1;
+            out[pc].comment = NULL;
             return;
          }
       }
    }
 }
 
+static void PrintRPN (void);
+static void PrintResult(void);
 int main(void)
 {
    unsigned i;
 
    Step1();
 //   PrintRPN();
+
+   out = malloc (1024*sizeof(BYTECODE));
+   assert(out);
    Step2();
+   PrintResult();
+   free (out);
+
+   return 0;
+}
+
+/* for debugging */
+static void PrintRPN (void)
+{
+   unsigned i;
+
+   for (i=0; i<rpn.n; i++)
+      printf ("%3u  type: %3u  '%15s'   op: %3u;  flags: %u\n",
+       rpn.lex[i].l->line, rpn.lex[i].l->type, rpn.lex[i].l->string, rpn.lex[i].l->op,
+       rpn.lex[i].flags);
+}
+
+static void PrintResult(void)
+{
+   unsigned i;
+
+   for (i=0; i<=pc; i++)
+   {
+      if (out[i].line != -1)
+         printf ("\n%3d", out[i].line);
+      else
+         printf ("   ");
+
+      printf ("%9u %-18s", 2*out[i].pc, out[i].comm);
+
+      if (out[i].param != -1)
+      {
+         printf ("%3u", out[i].param);
+         if (out[i].comment)
+            printf (" (%s)", out[i].comment);
+      }
+      printf ("\n");
+   }
 
    printf ("   consts\n");
    for (i=0; i<constList.n; i++)
@@ -392,17 +453,4 @@ int main(void)
       printf ("'%s'", globalList.s[i]);
    }
    printf (")\n");
-
-   return 0;
-}
-
-/* for debugging */
-static PrintRPN (void)
-{
-   unsigned i;
-
-   for (i=0; i<rpn.n; i++)
-      printf ("%3u  type: %3u  '%15s'   op: %3u;  flags: %u\n",
-       rpn.lex[i].l->line, rpn.lex[i].l->type, rpn.lex[i].l->string, rpn.lex[i].l->op,
-       rpn.lex[i].flags);
 }
