@@ -6,7 +6,8 @@
 
 LEX in[] = {
 //   #include "token2.inc"
-   #include "function1.inc"
+//   #include "function1.inc"
+   #include "token3.inc"
 };
 
 BYTECODE *out;
@@ -22,6 +23,12 @@ LEX_STACK stack = {buf5, 0};
 
 unsigned buf6[32];
 ARG_COUNT_STACK argCountStack = {buf6, 0};
+
+PC_SLOT buf7[32];
+PC_STACK pcStack = {buf7, 0};
+
+KEYWORD buf8[32];
+INDENT_STACK indentStack = {buf8, 0};
 
 static unsigned DefHendler (unsigned i)
 {
@@ -94,7 +101,7 @@ static void Step1 (void)
 {
    unsigned i;
    unsigned indentCount;
-   bool local, leftPart = true;
+   bool local, leftPart = true, forLoop = false;
    LEX_EX lexEx;
    int flags = 0;
 
@@ -121,7 +128,22 @@ static void Step1 (void)
          lexEx.priority = in[i].op;
          if ((in[i].op == PLUS || in[i].op == MINUS) && i > 1 &&
              in[i-1].type != NAME && in[i-1].type != NUMBER && in[i-1].type != STRING)
-            lexEx.priority = TILDE;
+         {
+            if (in[i+1].type == NUMBER)
+            {
+               char buf[50];
+               if (in[i].op == MINUS)
+                  strcpy (buf, "-");
+               else
+                  buf[0] = 0;
+               strcat (buf, in[i+1].string);
+               strcpy (in[i+1].string, buf);
+               lexEx.l = &in[i+1];
+               i++;
+            }
+            else
+               lexEx.priority = TILDE;
+         }
       }
       switch (in[i].type)
       {
@@ -132,6 +154,22 @@ static void Step1 (void)
                local = true;
                break;
             }
+            else if (strcmp (in[i].string, "for") == 0)
+            {
+               in[i].type = KWORD;
+               in[i].op = FOR;
+               Push(rpn, lexEx);
+               forLoop = true;
+               break;
+            }
+            else if (strcmp (in[i].string, "in") == 0)
+            {
+               in[i].type = KWORD;
+               in[i].op = IN;
+               Push(stack, lexEx);
+               leftPart = false;
+               break;
+            }
             //...
             /* usual NAME */
 
@@ -140,6 +178,9 @@ static void Step1 (void)
             Push(rpn, lexEx);
             break;
          case OP:
+            if (in[i].op == COLON) // :
+               break;
+
             /* %= &= **= *= += -= //= /= = */
             if (EQUAL >= in[i].op && in[i].op >= PERCENTEQUAL)
             {
@@ -189,6 +230,13 @@ static void Step1 (void)
             }
             break;
 
+         case INDENT:
+            if (forLoop)
+               lexEx.flags |= F_FOR;
+         case DEDENT:
+            Push(rpn, lexEx);
+            break;
+
          case NEWLINE:
             while (stack.n)
                Push(rpn, Pop(stack));
@@ -202,7 +250,7 @@ static void Step1 (void)
    }
 }
 
-static bool newLine;
+static bool newLine, label = false;
 static int pc = -1;/* program counter */
 
 static int GetNameIndex (STR str, bool def, bool *local)
@@ -252,7 +300,9 @@ static void PrintPrefix (const LEX *lex)
       out[pc].line = -1;
    out[pc].pc = pc;
    out[pc].param = -1;
-   out[pc].comment = NULL;
+   out[pc].comment[0] = 0;
+   out[pc].label = label;
+   label = false;
 }
 static void Load (LEX *lex, bool def)
 {
@@ -270,13 +320,13 @@ static void Load (LEX *lex, bool def)
          j = GetConstIndex (&constList, lex->string);
          out[pc].comm = "LOAD_CONST";
          out[pc].param = j;
-         out[pc].comment = lex->string;
+         strcpy (out[pc].comment, lex->string);
          break;
       case NAME:
          j = GetNameIndex (lex->string, def, &local);
          out[pc].comm = def ? (local ? "LOAD_FAST" : "LOAD_GLOBAL") : ("LOAD_NAME");
          out[pc].param = j;
-         out[pc].comment = lex->string;
+         strcpy (out[pc].comment, lex->string);
          break;
       default:
          assert(0);
@@ -294,7 +344,7 @@ static void Store (LEX *lex, bool def)
    PrintPrefix (lex);
    out[pc].comm = def ? "STORE_FAST" : "STORE_NAME";
    out[pc].param = j;
-   out[pc].comment = lex->string;
+   strcpy (out[pc].comment, lex->string);
 }
 
 static void Step2(void)
@@ -393,13 +443,79 @@ static void Step2(void)
                any_compare:
                      out[pc].comm = "COMPARE_OP";
                      out[pc].param = opNum;
-                     out[pc].comment = opName;
+                     strcpy (out[pc].comment, opName);
                      break;
 
                   default:
                      return;
                }
             }
+            break;
+
+         case KWORD:
+            switch (rpn.slot[i].l->op)
+            {
+               case FOR:
+                  PrintPrefix (rpn.slot[i].l);
+                  out[pc].comm = "SETUP_LOOP";
+                  {
+                     PC_SLOT slot = {pc, PC_SETUP_LOOP};
+                     Push(pcStack, slot);
+                     Push(indentStack, FOR);
+                  }
+                  break;
+               case IN:
+                  PrintPrefix (rpn.slot[i].l);
+                  out[pc].comm = "GET_ITER";
+
+                  PrintPrefix (rpn.slot[i].l);
+                  out[pc].comm = "FOR_ITER";
+                  out[pc].label = true;
+                  {
+                     PC_SLOT slot = {pc, PC_FOR_ITER};
+                     Push(pcStack, slot);
+                  }
+
+                  assert (stack.n > 0);
+                  Store (Tos(stack).l, def);
+                  Pop(stack);
+                  break;
+            }
+            break;
+
+         case INDENT:
+            if (rpn.slot[i].flags & F_FOR)
+               Push(indentStack, FOR);
+            else
+               Push(indentStack, USUALLY);
+            break;
+         case DEDENT:
+            if (Tos(indentStack) == FOR)
+            {
+               LEX lex = {DEDENT, "", -1, NONE};
+               PrintPrefix (&lex);
+               out[pc].comm = "JUMP_ABSOLUTE";
+               out[pc].param = Tos(pcStack).pc;
+               assert (Tos(pcStack).type == PC_FOR_ITER);
+
+               PrintPrefix (&lex);
+               out[pc].comm = "POP_BLOCK";
+               out[pc].label = true;
+
+               out[Tos(pcStack).pc].param = pc - Tos(pcStack).pc - 1;
+               sprintf (out[Tos(pcStack).pc].comment, "to %u", pc);
+
+               Pop(pcStack);
+               assert (Tos(pcStack).type == PC_SETUP_LOOP);
+
+               out[Tos(pcStack).pc].param = pc - Tos(pcStack).pc;
+               sprintf (out[Tos(pcStack).pc].comment, "to %u", pc + 1);
+
+               Pop(pcStack);
+               newLine = true;
+               label = true;
+            }
+            Pop(indentStack);
             break;
 
          case NEWLINE:
@@ -410,13 +526,11 @@ static void Step2(void)
             PrintPrefix (rpn.slot[i].l);
             out[pc].comm = "CALL_FUNCTION";
             out[pc].param = rpn.slot[i].l->op;
-            out[pc].comment = NULL;
-            if (rpn.slot[i+1].l->type != OP || rpn.slot[i+1].l->op != EQUAL)
+            if ((rpn.slot[i+1].l->type != OP || rpn.slot[i+1].l->op != EQUAL) &&
+                (rpn.slot[i+1].l->type != KWORD || rpn.slot[i+1].l->op != IN))
             {
                PrintPrefix (rpn.slot[i].l);
                out[pc].comm = "POP_TOP";
-               out[pc].param = -1;
-               out[pc].comment = NULL;
             }
             break;
 
@@ -428,11 +542,9 @@ static void Step2(void)
             PrintPrefix (rpn.slot[i].l);
             out[pc].comm = "LOAD_CONST";
             out[pc].param = j;
-            out[pc].comment = "None";
+            strcpy (out[pc].comment, "None");
             PrintPrefix (rpn.slot[i].l);
             out[pc].comm = "RETURN_VALUE";
-            out[pc].param = -1;
-            out[pc].comment = NULL;
             return;
          }
       }
@@ -480,12 +592,17 @@ static void PrintResult(void)
       else
          printf ("   ");
 
-      printf ("%9u %-18s", 2*out[i].pc, out[i].comm);
+      if (out[i].label)
+         printf ("%7s", ">>");
+      else
+         printf ("%7s", " ");
+
+      printf ("%5u %-23s", 2*out[i].pc, out[i].comm);
 
       if (out[i].param != -1)
       {
          printf ("%3u", out[i].param);
-         if (out[i].comment)
+         if (out[i].comment[0])
             printf (" (%s)", out[i].comment);
       }
       printf ("\n");

@@ -18,7 +18,8 @@ typedef enum TYPE_ {
    DEDENT,      // = C '}'
    ENDMARKER,
    RESULT,
-   FUNCTION
+   FUNCTION,
+   KWORD
 } TYPE;
 
 typedef char STR[50];
@@ -85,6 +86,12 @@ typedef enum  OPERATOR_ {
    NONE = 200
 } OPERATOR;
 
+typedef enum KEYWORD_ {
+   FOR,
+   IN,
+   USUALLY
+} KEYWORD;
+
 typedef struct LEX_
 {
    TYPE     type;
@@ -102,6 +109,7 @@ typedef struct STR_LIST_
 #define L_PART 0x01
 #define R_PART 0x02
 #define F_FLAG 0x04
+#define F_FOR  0x08
 typedef struct LEX_EX_
 {
    LEX      *l;
@@ -120,6 +128,31 @@ typedef struct ARG_COUNT_STACK_
    unsigned *slot;
    unsigned n;
 } ARG_COUNT_STACK;
+
+typedef enum PC_TYPE_
+{
+   PC_SETUP_LOOP,
+   PC_FOR_ITER,
+   PC_END_OF_LOOP  //???
+} PC_TYPE;
+
+typedef struct PC_SLOT_
+{
+   unsigned pc;
+   PC_TYPE  type;
+} PC_SLOT;
+
+typedef struct PC_STACK_
+{
+   PC_SLOT  *slot;
+   unsigned n;
+} PC_STACK;
+
+typedef struct INDENT_STACK_
+{
+   KEYWORD  *slot;
+   unsigned n;
+} INDENT_STACK;
 
 /* Top of stack */
 #define Tos(s)   s.slot[s.n-1]
@@ -146,5 +179,6 @@ typedef struct BYTECODE_ {
    int  pc;
    char *comm;
    int  param;
-   char *comment;
+   char comment[32];
+   bool label;
 } BYTECODE;
