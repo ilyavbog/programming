@@ -16,8 +16,8 @@ STR_LIST globalList = {buf2, 0};
 STR_LIST localList = {buf3, 0};
 
 LEX_EX buf4[128], buf5[128];
-STACK rpn = {buf4, 0};
-STACK stack = {buf5, 0};
+LEX_STACK rpn = {buf4, 0};
+LEX_STACK stack = {buf5, 0};
 
 static unsigned DefHendler (unsigned i)
 {
@@ -125,7 +125,7 @@ static void Step1 (void)
 
          case NUMBER:
          case STRING:
-            Push(rpn, &lexEx);
+            Push(rpn, lexEx);
             break;
          case OP:
             /* %= &= **= *= += -= //= /= = */
@@ -135,33 +135,33 @@ static void Step1 (void)
             }
 
             if (in[i].op == LPAR)
-               Push(stack, &lexEx);
+               Push(stack, lexEx);
             else if (in[i].op == RPAR)
             {
-               while (stack.n && TOS(stack)->type == OP &&
-                      TOS(stack)->op != LPAR)
+               while (stack.n && Tos(stack).l->type == OP &&
+                      Tos(stack).l->op != LPAR)
                   Push(rpn, Pop(stack));
                Pop(stack);
             }
             else
             {
-               while (stack.n && TOS(stack)->type == OP &&
-                      TOS(stack)->op <= lexEx.priority)
-                  if (TOS(stack)->op != LPAR)
+               while (stack.n && Tos(stack).l->type == OP &&
+                      Tos(stack).l->op <= lexEx.priority)
+                  if (Tos(stack).l->op != LPAR)
                      Push(rpn, Pop(stack));
                   else
                      break;
-               Push(stack, &lexEx);
+               Push(stack, lexEx);
             }
             break;
          case NEWLINE:
             while (stack.n)
                Push(rpn, Pop(stack));
-            Push(rpn, &lexEx);
+            Push(rpn, lexEx);
             leftPart = true;
             break;
          case ENDMARKER:
-            Push(rpn, &lexEx);
+            Push(rpn, lexEx);
             return;
       }
    }
@@ -273,24 +273,24 @@ static void Step2(void)
    newLine = true;
    for (i=0; i<rpn.n; i++)
    {
-      switch (rpn.lex[i].l->type)
+      switch (rpn.slot[i].l->type)
       {
          case NAME:
          case NUMBER:
          case STRING:
-            if (rpn.lex[i].flags & L_PART)
-               Push(stack, &rpn.lex[i]);
-            if (rpn.lex[i].flags & R_PART)
-               Load(rpn.lex[i].l, def);
+            if (rpn.slot[i].flags & L_PART)
+               Push(stack, rpn.slot[i]);
+            if (rpn.slot[i].flags & R_PART)
+               Load(rpn.slot[i].l, def);
             break;
          case OP:
             /* %= &= **= *= += -= //= /= = */
-            if (EQUAL >= rpn.lex[i].l->op && rpn.lex[i].l->op >= PERCENTEQUAL)
+            if (EQUAL >= rpn.slot[i].l->op && rpn.slot[i].l->op >= PERCENTEQUAL)
             {
-               if (rpn.lex[i].l->op != EQUAL)
+               if (rpn.slot[i].l->op != EQUAL)
                {
-                  PrintPrefix (rpn.lex[i].l);
-                  switch (rpn.lex[i].l->op)
+                  PrintPrefix (rpn.slot[i].l);
+                  switch (rpn.slot[i].l->op)
                   {
                      case PERCENTEQUAL:    /* %=   */
                            out[pc].comm = "INPLACE_MODULO"; break;
@@ -311,25 +311,25 @@ static void Step2(void)
                   }
                }
                assert (stack.n > 0);
-               Store (TOS(stack), def);
+               Store (Tos(stack).l, def);
                Pop(stack);
             }
-            else if ((EQEQUAL >= rpn.lex[i].l->op && rpn.lex[i].l->op >= PERCENT)
-                      || rpn.lex[i].l->op == DOUBLESTAR)
+            else if ((EQEQUAL >= rpn.slot[i].l->op && rpn.slot[i].l->op >= PERCENT)
+                      || rpn.slot[i].l->op == DOUBLESTAR)
             {
                unsigned opNum;
                char     *opName;
-               PrintPrefix (rpn.lex[i].l);
-               switch (rpn.lex[i].l->op)
+               PrintPrefix (rpn.slot[i].l);
+               switch (rpn.slot[i].l->op)
                {
                   case PLUS: /* + */
-                     if (rpn.lex[i].priority == TILDE)
+                     if (rpn.slot[i].priority == TILDE)
                         out[pc].comm = "UNARY_POSITIVE";
                      else
                         out[pc].comm = "BINARY_ADD";
                      break;
                   case MINUS: /* - */
-                     if (rpn.lex[i].priority == TILDE)
+                     if (rpn.slot[i].priority == TILDE)
                         out[pc].comm = "UNARY_NEGATIVE";
                      else
                         out[pc].comm = "BINARY_SUBTRACT";
@@ -376,11 +376,11 @@ static void Step2(void)
             unsigned j;
             newLine = false;
             j = GetConstIndex (&constList, "None");
-            PrintPrefix (rpn.lex[i].l);
+            PrintPrefix (rpn.slot[i].l);
             out[pc].comm = "LOAD_CONST";
             out[pc].param = j;
             out[pc].comment = "None";
-            PrintPrefix (rpn.lex[i].l);
+            PrintPrefix (rpn.slot[i].l);
             out[pc].comm = "RETURN_VALUE";
             out[pc].param = -1;
             out[pc].comment = NULL;
@@ -415,8 +415,8 @@ static void PrintRPN (void)
 
    for (i=0; i<rpn.n; i++)
       printf ("%3u  type: %3u  '%15s'   op: %3u;  flags: %u\n",
-       rpn.lex[i].l->line, rpn.lex[i].l->type, rpn.lex[i].l->string, rpn.lex[i].l->op,
-       rpn.lex[i].flags);
+       rpn.slot[i].l->line, rpn.slot[i].l->type, rpn.slot[i].l->string, rpn.slot[i].l->op,
+       rpn.slot[i].flags);
 }
 
 static void PrintResult(void)

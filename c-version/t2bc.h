@@ -107,14 +107,15 @@ typedef struct LEX_EX_
    unsigned priority;
 } LEX_EX;
 
-typedef struct STACK_
+typedef struct LEX_STACK_
 {
-   LEX_EX   *lex;
+   LEX_EX   *slot;
    unsigned n;
-} STACK;
+} LEX_STACK;
 
-#define TOS(s)   s.lex[s.n-1].l
-#define TOS1(s)  s.lex[s.n-2].l
+/* Top of stack */
+#define Tos(s)   s.slot[s.n-1]
+#define Tos1(s)  s.slot[s.n-2]
 
 #define Add2List(list,str) \
 do {                             \
@@ -122,14 +123,14 @@ do {                             \
    list.n++;                     \
 } while (0)
 
-#define Push(stack_, lex_) \
-do {                             \
-   stack_.lex[stack_.n] = *lex_; \
-   stack_.n++;                   \
+#define Push(stack_, slot_) \
+do {                              \
+   stack_.slot[stack_.n] = slot_; \
+   stack_.n++;                    \
 } while (0)
 
 #define Pop(stack_) \
-   (stack_.n--, &stack_.lex[stack_.n])
+   (stack_.n--, stack_.slot[stack_.n])
 
 /*-------------------------------------------*/
 
