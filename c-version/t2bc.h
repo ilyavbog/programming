@@ -123,7 +123,6 @@ typedef struct ARG_COUNT_STACK_
 
 /* Top of stack */
 #define Tos(s)   s.slot[s.n-1]
-#define Tos1(s)  s.slot[s.n-2]
 
 #define Add2List(list,str) \
 do {                             \
