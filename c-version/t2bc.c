@@ -5,7 +5,8 @@
 #include "t2bc.h"
 
 LEX in[] = {
-   #include "token2.inc"
+//   #include "token2.inc"
+   #include "function1.inc"
 };
 
 BYTECODE *out;
@@ -18,6 +19,9 @@ STR_LIST localList = {buf3, 0};
 LEX_EX buf4[128], buf5[128];
 LEX_STACK rpn = {buf4, 0};
 LEX_STACK stack = {buf5, 0};
+
+unsigned buf6[32];
+ARG_COUNT_STACK argCountStack = {buf6, 0};
 
 static unsigned DefHendler (unsigned i)
 {
@@ -97,11 +101,20 @@ static void Step1 (void)
    for (i=0; true; i++)
    {
       lexEx.l = &in[i];
+      lexEx.flags = 0;
 
-      lexEx.flags = leftPart ? L_PART : R_PART;
-      /* %= &= **= *= += -= //= /= */
-      if (SLASHEQUAL >= in[i+1].op && in[i+1].op >= PERCENTEQUAL)
-         lexEx.flags |= R_PART;
+      if (in[i+1].type == OP)
+      {
+         if (in[i+1].op == LPAR)
+         {
+            leftPart = false;
+            lexEx.flags = R_PART;
+         }
+         /* %= &= **= *= += -= //= /= */
+         else if (SLASHEQUAL >= in[i+1].op && in[i+1].op >= PERCENTEQUAL)
+            lexEx.flags = L_PART | R_PART;
+      }
+      lexEx.flags |= leftPart ? L_PART : R_PART;
 
       if (in[i].type == OP)
       {
@@ -122,7 +135,6 @@ static void Step1 (void)
             //...
             /* usual NAME */
 
-
          case NUMBER:
          case STRING:
             Push(rpn, lexEx);
@@ -135,13 +147,35 @@ static void Step1 (void)
             }
 
             if (in[i].op == LPAR)
+            {
+               if (i && in[i-1].type == NAME)
+               {
+                  lexEx.flags |= F_FLAG;
+                  Push(argCountStack, in[i-1].type == OP ? 0 : 1);
+               }
                Push(stack, lexEx);
+            }
             else if (in[i].op == RPAR)
             {
                while (stack.n && Tos(stack).l->type == OP &&
                       Tos(stack).l->op != LPAR)
                   Push(rpn, Pop(stack));
-               Pop(stack);
+               if (stack.n && (Tos(stack).flags & F_FLAG))
+               {
+                  Tos(stack).l->type = FUNCTION;
+                  Tos(stack).l->op = Pop(argCountStack);
+                  Push(rpn, Pop(stack));
+               }
+               else
+                  Pop(stack);
+            }
+            else if (in[i].op == COMMA)
+            {
+               while (stack.n && Tos(stack).l->type == OP &&
+                      Tos(stack).l->op != LPAR)
+                  Push(rpn, Pop(stack));
+               if (stack.n && (Tos(stack).flags & F_FLAG))
+                  Tos(argCountStack)++;
             }
             else
             {
@@ -154,6 +188,7 @@ static void Step1 (void)
                Push(stack, lexEx);
             }
             break;
+
          case NEWLINE:
             while (stack.n)
                Push(rpn, Pop(stack));
@@ -371,6 +406,20 @@ static void Step2(void)
             newLine = true;
             break;
 
+         case FUNCTION:
+            PrintPrefix (rpn.slot[i].l);
+            out[pc].comm = "CALL_FUNCTION";
+            out[pc].param = rpn.slot[i].l->op;
+            out[pc].comment = NULL;
+            if (rpn.slot[i+1].l->type != OP || rpn.slot[i+1].l->op != EQUAL)
+            {
+               PrintPrefix (rpn.slot[i].l);
+               out[pc].comm = "POP_TOP";
+               out[pc].param = -1;
+               out[pc].comment = NULL;
+            }
+            break;
+
          case ENDMARKER:
          {
             unsigned j;
@@ -398,6 +447,7 @@ int main(void)
 
    Step1();
 //   PrintRPN();
+//   return 0;
 
    out = malloc (1024*sizeof(BYTECODE));
    assert(out);

@@ -17,7 +17,8 @@ typedef enum TYPE_ {
    NL,          // ignore
    DEDENT,      // = C '}'
    ENDMARKER,
-   RESULT
+   RESULT,
+   FUNCTION
 } TYPE;
 
 typedef char STR[50];
@@ -100,6 +101,7 @@ typedef struct STR_LIST_
 
 #define L_PART 0x01
 #define R_PART 0x02
+#define F_FLAG 0x04
 typedef struct LEX_EX_
 {
    LEX      *l;
@@ -112,6 +114,12 @@ typedef struct LEX_STACK_
    LEX_EX   *slot;
    unsigned n;
 } LEX_STACK;
+
+typedef struct ARG_COUNT_STACK_
+{
+   unsigned *slot;
+   unsigned n;
+} ARG_COUNT_STACK;
 
 /* Top of stack */
 #define Tos(s)   s.slot[s.n-1]
