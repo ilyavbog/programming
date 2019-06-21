@@ -60,3 +60,4 @@ not, or, and   ?????????? ?????????;
 ('<', '<=', '==', '!=', '>', '>=', 'in', 'not in', 'is', 'is not', 'exception match', 'BAD')
   0     1     2     3    4     5
 cl /Zi /Yd t2bc.c
+cl /Zi /Yd tok2tok.c
