@@ -90,6 +90,9 @@ typedef enum KEYWORD_ {
    FOR,
    IN,
    WHILE,
+   IF,
+   ELIF,
+   ELSE,
    USUALLY
 } KEYWORD;
 
@@ -112,6 +115,8 @@ typedef struct STR_LIST_
 #define F_FLAG   0x04
 #define F_FOR    0x08
 #define F_WHILE  0x10
+#define F_IF     0x20
+#define F_ELSE   0x40
 typedef struct LEX_EX_
 {
    LEX      *l;
@@ -137,6 +142,7 @@ typedef enum PC_TYPE_
    PC_FOR_ITER,
    PC_AFTER_WHILE,
    PC_POP_JUMP_IF_FALSE,
+   PC_JUMP_FORWARD,
    PC_END_OF_LOOP  //???
 } PC_TYPE;
 

@@ -5,11 +5,13 @@
 #include "t2bc.h"
 
 LEX in[] = {
+   #include "code_test.inc"
 //   #include "token2.inc"
 //   #include "function1.inc"
 //   #include "token3.inc"
 //   #include "token4.inc"
-   #include "token6.inc"
+//   #include "token5.inc"
+//   #include "token6.inc"
 };
 
 BYTECODE *out;
@@ -19,7 +21,7 @@ STR_LIST constList = {buf1, 0};
 STR_LIST globalList = {buf2, 0};
 STR_LIST localList = {buf3, 0};
 
-LEX_EX buf4[128], buf5[128];
+LEX_EX buf4[512], buf5[128];
 LEX_STACK rpn = {buf4, 0};
 LEX_STACK stack = {buf5, 0};
 
@@ -103,7 +105,8 @@ static void Step1 (void)
 {
    unsigned i;
    unsigned indentCount;
-   bool local, leftPart = true, forLoop = false, whileLoop = false;
+   bool local, leftPart = true, forLoop = false, whileLoop = false, ifFlag = false,
+        elseFlag = false;
    LEX_EX lexEx;
    int flags = 0;
 
@@ -180,6 +183,34 @@ static void Step1 (void)
                whileLoop = true;
                break;
             }
+            else if (strcmp (in[i].string, "if") == 0)
+            {
+               in[i].type = KWORD;
+               in[i].op = IF;
+               Push(rpn, lexEx);
+               ifFlag = true;
+               leftPart = false;
+               break;
+            }
+            else if (strcmp (in[i].string, "elif") == 0)
+            {
+               in[i].type = KWORD;
+               in[i].op = ELIF;
+               Push(rpn, lexEx);
+               ifFlag = true;
+               elseFlag = true;
+               leftPart = false;
+               break;
+            }
+            else if (strcmp (in[i].string, "else") == 0)
+            {
+               in[i].type = KWORD;
+               in[i].op = ELSE;
+               Push(rpn, lexEx);
+               elseFlag = true;
+               leftPart = false;
+               break;
+            }
             //...
             /* usual NAME */
 
@@ -250,6 +281,16 @@ static void Step1 (void)
             {
                lexEx.flags |= F_WHILE;
                whileLoop = false;
+            }
+            else if (ifFlag)
+            {
+               lexEx.flags |= F_IF;
+               ifFlag = false;
+            }
+            else if (elseFlag)
+            {
+               lexEx.flags |= F_ELSE;
+               elseFlag = false;
             }
          case DEDENT:
             Push(rpn, lexEx);
@@ -462,7 +503,8 @@ static void Step2(void)
                      out[pc].comm = "COMPARE_OP";
                      out[pc].param = opNum;
                      strcpy (out[pc].comment, opName);
-                     if (Tos(indentStack) == WHILE)
+                     if (Tos(indentStack) == WHILE || Tos(indentStack) == IF
+                         || Tos(indentStack) == ELIF)
                      {
                         PC_SLOT slot;
 
@@ -522,6 +564,9 @@ static void Step2(void)
                   }
                   label = true;         /* set label for next command */
                   break;
+               case IF:
+                  Push(indentStack, IF);
+                  break;
             }
             break;
 
@@ -530,13 +575,28 @@ static void Step2(void)
                Push(indentStack, FOR);
             else if (rpn.slot[i].flags & F_WHILE)
                Push(indentStack, WHILE);
+            else if (rpn.slot[i].flags & F_IF)
+               Push(indentStack, IF);
+            else if (rpn.slot[i].flags & F_ELSE)
+               Push(indentStack, ELSE);
             else
                Push(indentStack, USUALLY);
             break;
          case DEDENT:
+         {
+            LEX lex = {DEDENT, "", -1, NONE};
+
+            if (rpn.slot[i+1].l->type == KWORD &&
+                (rpn.slot[i+1].l->op == ELSE || rpn.slot[i+1].l->op == ELIF))
+            {
+               PC_SLOT slot;
+
+               PrintPrefix (&lex);
+               out[pc].comm = "JUMP_FORWARD";
+            }
+
             if (Tos(indentStack) == FOR)
             {
-               LEX lex = {DEDENT, "", -1, NONE};
                PrintPrefix (&lex);
                out[pc].comm = "JUMP_ABSOLUTE";
                out[pc].param = Tos(pcStack).pc;
@@ -556,13 +616,9 @@ static void Step2(void)
                sprintf (out[Tos(pcStack).pc].comment, "to %u", pc + 1);
 
                Pop(pcStack);
-               newLine = true;
-               label = true;         /* set label for next command */
             }
             else if (Tos(indentStack) == WHILE)
             {
-               LEX lex = {DEDENT, "", -1, NONE};
-
                if (Tos(pcStack).type == PC_POP_JUMP_IF_FALSE)
                {
                   out[Tos(pcStack).pc].param = pc - Tos(pcStack).pc;
@@ -584,12 +640,45 @@ static void Step2(void)
                sprintf (out[Tos(pcStack).pc].comment, "to %u", pc + 1);
 
                Pop(pcStack);
-               newLine = true;
-               label = true;         /* set label for next command */
             }
-            Pop(indentStack);
-            break;
+            else if (Tos(indentStack) == IF)
+            {
+               if (Tos(pcStack).type == PC_POP_JUMP_IF_FALSE)
+               {
+                  out[Tos(pcStack).pc].param = pc + 1;
+                  Pop(pcStack);
+               }
+            }
+            else if (Tos(indentStack) == ELSE)
+            {
+               char comment[16];
 
+               assert(pcStack.n);
+
+               sprintf (comment, "to %u", pc + 1);
+               while (pcStack.n)
+               {
+                  out[Tos(pcStack).pc].param = pc - Tos(pcStack).pc;
+                  strcpy (out[Tos(pcStack).pc].comment, comment);
+                  Pop(pcStack);
+               }
+            }
+
+            newLine = true;
+            label = true;         /* set label for next command */
+            Pop(indentStack);
+
+            if (strcmp (out[pc].comm, "JUMP_FORWARD") == 0)
+            {
+               PC_SLOT slot;
+
+               slot.pc = pc;
+               slot.type = PC_JUMP_FORWARD;
+               Push(pcStack, slot);
+            }
+
+            break;
+         }
          case NEWLINE:
             newLine = true;
             break;
@@ -609,12 +698,14 @@ static void Step2(void)
          case ENDMARKER:
          {
             unsigned j;
+
             newLine = false;
             j = GetConstIndex (&constList, "None");
             PrintPrefix (rpn.slot[i].l);
             out[pc].comm = "LOAD_CONST";
             out[pc].param = j;
             strcpy (out[pc].comment, "None");
+
             PrintPrefix (rpn.slot[i].l);
             out[pc].comm = "RETURN_VALUE";
             return;
