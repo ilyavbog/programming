@@ -7,7 +7,9 @@
 LEX in[] = {
 //   #include "token2.inc"
 //   #include "function1.inc"
-   #include "token3.inc"
+//   #include "token3.inc"
+//   #include "token4.inc"
+   #include "token6.inc"
 };
 
 BYTECODE *out;
@@ -101,7 +103,7 @@ static void Step1 (void)
 {
    unsigned i;
    unsigned indentCount;
-   bool local, leftPart = true, forLoop = false;
+   bool local, leftPart = true, forLoop = false, whileLoop = false;
    LEX_EX lexEx;
    int flags = 0;
 
@@ -170,6 +172,14 @@ static void Step1 (void)
                leftPart = false;
                break;
             }
+            else if (strcmp (in[i].string, "while") == 0)
+            {
+               in[i].type = KWORD;
+               in[i].op = WHILE;
+               Push(rpn, lexEx);
+               whileLoop = true;
+               break;
+            }
             //...
             /* usual NAME */
 
@@ -232,7 +242,15 @@ static void Step1 (void)
 
          case INDENT:
             if (forLoop)
+            {
                lexEx.flags |= F_FOR;
+               forLoop = false;
+            }
+            else if (whileLoop)
+            {
+               lexEx.flags |= F_WHILE;
+               whileLoop = false;
+            }
          case DEDENT:
             Push(rpn, lexEx);
             break;
@@ -444,6 +462,18 @@ static void Step2(void)
                      out[pc].comm = "COMPARE_OP";
                      out[pc].param = opNum;
                      strcpy (out[pc].comment, opName);
+                     if (Tos(indentStack) == WHILE)
+                     {
+                        PC_SLOT slot;
+
+                        PrintPrefix (rpn.slot[i].l);
+                        out[pc].comm = "POP_JUMP_IF_FALSE";
+                        out[pc].param = opNum;
+
+                        slot.pc = pc;
+                        slot.type = PC_POP_JUMP_IF_FALSE;
+                        Push(pcStack, slot);
+                     }
                      break;
 
                   default:
@@ -475,10 +505,22 @@ static void Step2(void)
                      PC_SLOT slot = {pc, PC_FOR_ITER};
                      Push(pcStack, slot);
                   }
-
                   assert (stack.n > 0);
                   Store (Tos(stack).l, def);
                   Pop(stack);
+                  break;
+
+               case WHILE:
+                  PrintPrefix (rpn.slot[i].l);
+                  out[pc].comm = "SETUP_LOOP";
+                  {
+                     PC_SLOT slot1 = {pc, PC_SETUP_LOOP},
+                             slot2 = {pc+1, PC_AFTER_WHILE};
+                     Push(pcStack, slot1);
+                     Push(pcStack, slot2);
+                     Push(indentStack, WHILE);
+                  }
+                  label = true;         /* set label for next command */
                   break;
             }
             break;
@@ -486,6 +528,8 @@ static void Step2(void)
          case INDENT:
             if (rpn.slot[i].flags & F_FOR)
                Push(indentStack, FOR);
+            else if (rpn.slot[i].flags & F_WHILE)
+               Push(indentStack, WHILE);
             else
                Push(indentStack, USUALLY);
             break;
@@ -513,7 +557,35 @@ static void Step2(void)
 
                Pop(pcStack);
                newLine = true;
-               label = true;
+               label = true;         /* set label for next command */
+            }
+            else if (Tos(indentStack) == WHILE)
+            {
+               LEX lex = {DEDENT, "", -1, NONE};
+
+               if (Tos(pcStack).type == PC_POP_JUMP_IF_FALSE)
+               {
+                  out[Tos(pcStack).pc].param = pc - Tos(pcStack).pc;
+                  sprintf (out[Tos(pcStack).pc].comment, "%u", pc + 1);
+                  Pop(pcStack);
+               }
+               PrintPrefix (&lex);
+               out[pc].comm = "JUMP_ABSOLUTE";
+               out[pc].param = Tos(pcStack).pc;
+               assert (Tos(pcStack).type == PC_AFTER_WHILE);
+
+               PrintPrefix (&lex);
+               out[pc].comm = "POP_BLOCK";
+
+               Pop(pcStack);
+               assert (Tos(pcStack).type == PC_SETUP_LOOP);
+
+               out[Tos(pcStack).pc].param = pc - Tos(pcStack).pc;
+               sprintf (out[Tos(pcStack).pc].comment, "to %u", pc + 1);
+
+               Pop(pcStack);
+               newLine = true;
+               label = true;         /* set label for next command */
             }
             Pop(indentStack);
             break;

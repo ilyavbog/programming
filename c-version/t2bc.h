@@ -89,6 +89,7 @@ typedef enum  OPERATOR_ {
 typedef enum KEYWORD_ {
    FOR,
    IN,
+   WHILE,
    USUALLY
 } KEYWORD;
 
@@ -106,10 +107,11 @@ typedef struct STR_LIST_
    unsigned n;
 } STR_LIST;
 
-#define L_PART 0x01
-#define R_PART 0x02
-#define F_FLAG 0x04
-#define F_FOR  0x08
+#define L_PART   0x01
+#define R_PART   0x02
+#define F_FLAG   0x04
+#define F_FOR    0x08
+#define F_WHILE  0x10
 typedef struct LEX_EX_
 {
    LEX      *l;
@@ -133,6 +135,8 @@ typedef enum PC_TYPE_
 {
    PC_SETUP_LOOP,
    PC_FOR_ITER,
+   PC_AFTER_WHILE,
+   PC_POP_JUMP_IF_FALSE,
    PC_END_OF_LOOP  //???
 } PC_TYPE;
 
