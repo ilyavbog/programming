@@ -93,6 +93,8 @@ typedef enum KEYWORD_ {
    IF,
    ELIF,
    ELSE,
+   TRUE,
+   FALSE,
    USUALLY
 } KEYWORD;
 

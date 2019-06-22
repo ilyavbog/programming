@@ -5,12 +5,12 @@
 #include "t2bc.h"
 
 LEX in[] = {
-   #include "code_test.inc"
+//   #include "code_test.inc"
 //   #include "token2.inc"
 //   #include "function1.inc"
 //   #include "token3.inc"
 //   #include "token4.inc"
-//   #include "token5.inc"
+   #include "token5.inc"
 //   #include "token6.inc"
 };
 
@@ -181,6 +181,7 @@ static void Step1 (void)
                in[i].op = WHILE;
                Push(rpn, lexEx);
                whileLoop = true;
+               leftPart = false;
                break;
             }
             else if (strcmp (in[i].string, "if") == 0)
@@ -209,6 +210,14 @@ static void Step1 (void)
                Push(rpn, lexEx);
                elseFlag = true;
                leftPart = false;
+               break;
+            }
+            else if (strcmp (in[i].string, "True") == 0)
+            {
+               in[i].type = KWORD;
+               in[i].op = TRUE;
+               if (i && (in[i-1].type != KWORD || in[i-1].op != WHILE))
+                  Push(rpn, lexEx);
                break;
             }
             //...
@@ -622,7 +631,6 @@ static void Step2(void)
                if (Tos(pcStack).type == PC_POP_JUMP_IF_FALSE)
                {
                   out[Tos(pcStack).pc].param = pc - Tos(pcStack).pc;
-                  sprintf (out[Tos(pcStack).pc].comment, "%u", pc + 1);
                   Pop(pcStack);
                }
                PrintPrefix (&lex);
