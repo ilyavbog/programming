@@ -10,8 +10,8 @@ LEX in[] = {
 //   #include "function1.inc"
 //   #include "token3.inc"
 //   #include "token4.inc"
-   #include "token5.inc"
-//   #include "token6.inc"
+//   #include "token5.inc"
+   #include "token6.inc"
 };
 
 BYTECODE *out;
@@ -215,6 +215,12 @@ static void Step1 (void)
                in[i].op = TRUE;
                if (i && (in[i-1].type != KWORD || in[i-1].op != WHILE))
                   Push(rpn, lexEx);
+               break;
+            }
+            else if (strcmp (in[i].string, "break") == 0)
+            {
+               RecodeAndPush(BREAK);
+               leftPart = false;
                break;
             }
             //...
@@ -573,6 +579,9 @@ static void Step2(void)
                case ELIF:
                   Push(indentStack, ELIF);
                   break;
+               case BREAK:
+                  InitCommEx (rpn.slot[i].l, "BREAK_LOOP");
+                  break;
             }
             break;
 
@@ -625,6 +634,7 @@ static void Step2(void)
                {
                   out[Tos(pcStack).pc].param = pc;
                   Pop(pcStack);
+                  out[pc].label = true;
                }
 
                assert (Tos(pcStack).type == PC_AFTER_WHILE);

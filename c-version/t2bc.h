@@ -95,6 +95,7 @@ typedef enum KEYWORD_ {
    ELSE,
    TRUE,
    FALSE,
+   BREAK,
    USUALLY
 } KEYWORD;
 
