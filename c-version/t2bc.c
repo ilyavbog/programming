@@ -6,6 +6,8 @@
 
 LEX in[] = {
 //   #include "code_test.inc"
+//   #include "function1.inc"
+//   #include "token1.inc"
 //   #include "token2.inc"
 //   #include "function1.inc"
 //   #include "token3.inc"
@@ -420,6 +422,13 @@ static void Store (LEX *lex, bool def)
    strcpy (out[pc].comment, lex->string);
 }
 
+#define MakeEndOfLoop(lable_)  \
+do {                                                               \
+   InitCommEx (&lex, "JUMP_ABSOLUTE");   /* goto loop begin */     \
+   InitCommEx (&lex, "POP_BLOCK");       /* end of loop */         \
+   out[pc].label = lable_;                                           \
+} while(0)
+
 static void Step2(void)
 {
    unsigned i;
@@ -601,6 +610,8 @@ static void Step2(void)
          {
             LEX lex = {DEDENT, "", -1, NONE};
 
+            assert(indentStack.n);
+
             if (rpn.slot[i+1].l->type == KWORD &&
                 (rpn.slot[i+1].l->op == ELSE || rpn.slot[i+1].l->op == ELIF))
             {
@@ -609,15 +620,13 @@ static void Step2(void)
                InitCommEx (&lex, "JUMP_FORWARD");
             }
 
-            if (Tos(indentStack) == FOR)
+            if (Tos(indentStack) == FOR)             /* end of 'for' loop */
             {
-               InitCommEx (&lex, "JUMP_ABSOLUTE");
-               out[pc].param = Tos(pcStack).pc;
-
-               InitCommEx (&lex, "POP_BLOCK");
-               out[pc].label = true;
+               MakeEndOfLoop (true);
 
                assert (Tos(pcStack).type == PC_FOR_ITER);
+               out[pc-1].param = Tos(pcStack).pc;    /* link to begin */
+
                out[Tos(pcStack).pc].param = pc - Tos(pcStack).pc - 1;
                sprintf (out[Tos(pcStack).pc].comment, "to %u", pc);
                Pop(pcStack);
@@ -625,35 +634,43 @@ static void Step2(void)
                assert (Tos(pcStack).type == PC_SETUP_LOOP);
                out[Tos(pcStack).pc].param = pc - Tos(pcStack).pc;
                sprintf (out[Tos(pcStack).pc].comment, "to %u", pc + 1);
-
                Pop(pcStack);
             }
-            else if (Tos(indentStack) == WHILE)
+            else if (Tos(indentStack) == WHILE)      /* end of 'while' loop */
             {
+               assert (pcStack.n);
                if (Tos(pcStack).type == PC_POP_JUMP_IF_FALSE)
                {
-                  out[Tos(pcStack).pc].param = pc;
+                  MakeEndOfLoop (true);
+                  out[Tos(pcStack).pc].param = pc;          /* link to end of loop */
                   Pop(pcStack);
-                  out[pc].label = true;
                }
+               else
+                  MakeEndOfLoop (false);
 
                assert (Tos(pcStack).type == PC_AFTER_WHILE);
-               InitCommEx (&lex, "JUMP_ABSOLUTE");
-               out[pc].param = Tos(pcStack).pc;
+               out[pc-1].param = Tos(pcStack).pc;           /* link to begin of loop */
                Pop(pcStack);
 
-               InitCommEx (&lex, "POP_BLOCK");
-
                assert (Tos(pcStack).type == PC_SETUP_LOOP);
-               out[Tos(pcStack).pc].param = pc - Tos(pcStack).pc;
+               out[Tos(pcStack).pc].param = pc - Tos(pcStack).pc;  /* link after loop block */
                sprintf (out[Tos(pcStack).pc].comment, "to %u", pc + 1);
                Pop(pcStack);
             }
             else if (Tos(indentStack) == IF)
             {
+               unsigned link;
+
+               if (rpn.slot[i+1].l->type == DEDENT &&
+                   indentStack.slot[indentStack.n - 2] == WHILE)
+                  link = pcStack.slot[pcStack.n - 3].type == PC_AFTER_WHILE ?
+                         pcStack.slot[pcStack.n - 3].pc : pcStack.slot[pcStack.n - 4].pc;
+               else
+                  link = pc + 1;
+
                if (Tos(pcStack).type == PC_POP_JUMP_IF_FALSE)
                {
-                  out[Tos(pcStack).pc].param = pc + 1;
+                  out[Tos(pcStack).pc].param = link;
                   Pop(pcStack);
                }
             }
