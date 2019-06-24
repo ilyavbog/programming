@@ -101,6 +101,13 @@ static unsigned DefHendler (unsigned i)
    return rv;
 }
 
+#define RecodeAndPush(key) \
+do {                       \
+   in[i].type = KWORD;     \
+   in[i].op = key;         \
+   Push(rpn, lexEx);       \
+} while(0)
+
 static void Step1 (void)
 {
    unsigned i;
@@ -161,9 +168,7 @@ static void Step1 (void)
             }
             else if (strcmp (in[i].string, "for") == 0)
             {
-               in[i].type = KWORD;
-               in[i].op = FOR;
-               Push(rpn, lexEx);
+               RecodeAndPush(FOR);
                forLoop = true;
                break;
             }
@@ -177,27 +182,21 @@ static void Step1 (void)
             }
             else if (strcmp (in[i].string, "while") == 0)
             {
-               in[i].type = KWORD;
-               in[i].op = WHILE;
-               Push(rpn, lexEx);
+               RecodeAndPush(WHILE);
                whileLoop = true;
                leftPart = false;
                break;
             }
             else if (strcmp (in[i].string, "if") == 0)
             {
-               in[i].type = KWORD;
-               in[i].op = IF;
-               Push(rpn, lexEx);
+               RecodeAndPush(IF);
                ifFlag = true;
                leftPart = false;
                break;
             }
             else if (strcmp (in[i].string, "elif") == 0)
             {
-               in[i].type = KWORD;
-               in[i].op = ELIF;
-               Push(rpn, lexEx);
+               RecodeAndPush(ELIF);
                ifFlag = true;
                elseFlag = true;
                leftPart = false;
@@ -205,9 +204,7 @@ static void Step1 (void)
             }
             else if (strcmp (in[i].string, "else") == 0)
             {
-               in[i].type = KWORD;
-               in[i].op = ELSE;
-               Push(rpn, lexEx);
+               RecodeAndPush(ELSE);
                elseFlag = true;
                leftPart = false;
                break;
@@ -356,7 +353,8 @@ static int GetConstIndex (STR_LIST *list, STR str)
    return i;
 }
 
-static void PrintPrefix (const LEX *lex)
+#define InitComm(lex)   InitCommEx(lex,NULL)
+static void InitCommEx (const LEX *lex, char *comm)
 {
    pc++;
    if (newLine)
@@ -367,6 +365,7 @@ static void PrintPrefix (const LEX *lex)
    else
       out[pc].line = -1;
    out[pc].pc = pc;
+   out[pc].comm = comm;
    out[pc].param = -1;
    out[pc].comment[0] = 0;
    out[pc].label = label;
@@ -381,7 +380,7 @@ static void Load (LEX *lex, bool def)
    if (lex->type == RESULT)
       return;
 
-   PrintPrefix (lex);
+   InitComm (lex);
    switch (lex->type)
    {
       case NUMBER: case STRING:
@@ -409,7 +408,7 @@ static void Store (LEX *lex, bool def)
 
    assert (lex->type == NAME);
    j = GetNameIndex (lex->string, def, &local);
-   PrintPrefix (lex);
+   InitComm (lex);
    out[pc].comm = def ? "STORE_FAST" : "STORE_NAME";
    out[pc].param = j;
    strcpy (out[pc].comment, lex->string);
@@ -442,7 +441,7 @@ static void Step2(void)
             {
                if (rpn.slot[i].l->op != EQUAL)
                {
-                  PrintPrefix (rpn.slot[i].l);
+                  InitComm (rpn.slot[i].l);
                   switch (rpn.slot[i].l->op)
                   {
                      case PERCENTEQUAL:    /* %=   */
@@ -472,7 +471,7 @@ static void Step2(void)
             {
                unsigned opNum;
                char     *opName;
-               PrintPrefix (rpn.slot[i].l);
+               InitComm (rpn.slot[i].l);
                switch (rpn.slot[i].l->op)
                {
                   case PLUS: /* + */
@@ -517,8 +516,8 @@ static void Step2(void)
                      {
                         PC_SLOT slot;
 
-                        PrintPrefix (rpn.slot[i].l);
-                        out[pc].comm = "POP_JUMP_IF_FALSE";
+                        Pop(indentStack);
+                        InitCommEx (rpn.slot[i].l, "POP_JUMP_IF_FALSE");
                         out[pc].param = opNum;
 
                         slot.pc = pc;
@@ -537,20 +536,16 @@ static void Step2(void)
             switch (rpn.slot[i].l->op)
             {
                case FOR:
-                  PrintPrefix (rpn.slot[i].l);
-                  out[pc].comm = "SETUP_LOOP";
+                  InitCommEx (rpn.slot[i].l, "SETUP_LOOP");
                   {
                      PC_SLOT slot = {pc, PC_SETUP_LOOP};
                      Push(pcStack, slot);
-                     Push(indentStack, FOR);
                   }
                   break;
                case IN:
-                  PrintPrefix (rpn.slot[i].l);
-                  out[pc].comm = "GET_ITER";
+                  InitCommEx (rpn.slot[i].l, "GET_ITER");
 
-                  PrintPrefix (rpn.slot[i].l);
-                  out[pc].comm = "FOR_ITER";
+                  InitCommEx (rpn.slot[i].l, "FOR_ITER");
                   out[pc].label = true;
                   {
                      PC_SLOT slot = {pc, PC_FOR_ITER};
@@ -562,8 +557,7 @@ static void Step2(void)
                   break;
 
                case WHILE:
-                  PrintPrefix (rpn.slot[i].l);
-                  out[pc].comm = "SETUP_LOOP";
+                  InitCommEx (rpn.slot[i].l, "SETUP_LOOP");
                   {
                      PC_SLOT slot1 = {pc, PC_SETUP_LOOP},
                              slot2 = {pc+1, PC_AFTER_WHILE};
@@ -575,6 +569,9 @@ static void Step2(void)
                   break;
                case IF:
                   Push(indentStack, IF);
+                  break;
+               case ELIF:
+                  Push(indentStack, ELIF);
                   break;
             }
             break;
@@ -600,27 +597,23 @@ static void Step2(void)
             {
                PC_SLOT slot;
 
-               PrintPrefix (&lex);
-               out[pc].comm = "JUMP_FORWARD";
+               InitCommEx (&lex, "JUMP_FORWARD");
             }
 
             if (Tos(indentStack) == FOR)
             {
-               PrintPrefix (&lex);
-               out[pc].comm = "JUMP_ABSOLUTE";
+               InitCommEx (&lex, "JUMP_ABSOLUTE");
                out[pc].param = Tos(pcStack).pc;
-               assert (Tos(pcStack).type == PC_FOR_ITER);
 
-               PrintPrefix (&lex);
-               out[pc].comm = "POP_BLOCK";
+               InitCommEx (&lex, "POP_BLOCK");
                out[pc].label = true;
 
+               assert (Tos(pcStack).type == PC_FOR_ITER);
                out[Tos(pcStack).pc].param = pc - Tos(pcStack).pc - 1;
                sprintf (out[Tos(pcStack).pc].comment, "to %u", pc);
-
                Pop(pcStack);
-               assert (Tos(pcStack).type == PC_SETUP_LOOP);
 
+               assert (Tos(pcStack).type == PC_SETUP_LOOP);
                out[Tos(pcStack).pc].param = pc - Tos(pcStack).pc;
                sprintf (out[Tos(pcStack).pc].comment, "to %u", pc + 1);
 
@@ -630,23 +623,20 @@ static void Step2(void)
             {
                if (Tos(pcStack).type == PC_POP_JUMP_IF_FALSE)
                {
-                  out[Tos(pcStack).pc].param = pc - Tos(pcStack).pc;
+                  out[Tos(pcStack).pc].param = pc;
                   Pop(pcStack);
                }
-               PrintPrefix (&lex);
-               out[pc].comm = "JUMP_ABSOLUTE";
-               out[pc].param = Tos(pcStack).pc;
+
                assert (Tos(pcStack).type == PC_AFTER_WHILE);
-
-               PrintPrefix (&lex);
-               out[pc].comm = "POP_BLOCK";
-
+               InitCommEx (&lex, "JUMP_ABSOLUTE");
+               out[pc].param = Tos(pcStack).pc;
                Pop(pcStack);
-               assert (Tos(pcStack).type == PC_SETUP_LOOP);
 
+               InitCommEx (&lex, "POP_BLOCK");
+
+               assert (Tos(pcStack).type == PC_SETUP_LOOP);
                out[Tos(pcStack).pc].param = pc - Tos(pcStack).pc;
                sprintf (out[Tos(pcStack).pc].comment, "to %u", pc + 1);
-
                Pop(pcStack);
             }
             else if (Tos(indentStack) == IF)
@@ -666,6 +656,7 @@ static void Step2(void)
                sprintf (comment, "to %u", pc + 1);
                while (pcStack.n)
                {
+                  assert(Tos(pcStack).type == PC_JUMP_FORWARD);
                   out[Tos(pcStack).pc].param = pc - Tos(pcStack).pc;
                   strcpy (out[Tos(pcStack).pc].comment, comment);
                   Pop(pcStack);
@@ -692,14 +683,12 @@ static void Step2(void)
             break;
 
          case FUNCTION:
-            PrintPrefix (rpn.slot[i].l);
-            out[pc].comm = "CALL_FUNCTION";
+            InitCommEx (rpn.slot[i].l, "CALL_FUNCTION");
             out[pc].param = rpn.slot[i].l->op;
             if ((rpn.slot[i+1].l->type != OP || rpn.slot[i+1].l->op != EQUAL) &&
                 (rpn.slot[i+1].l->type != KWORD || rpn.slot[i+1].l->op != IN))
             {
-               PrintPrefix (rpn.slot[i].l);
-               out[pc].comm = "POP_TOP";
+               InitCommEx (rpn.slot[i].l, "POP_TOP");
             }
             break;
 
@@ -709,13 +698,11 @@ static void Step2(void)
 
             newLine = false;
             j = GetConstIndex (&constList, "None");
-            PrintPrefix (rpn.slot[i].l);
-            out[pc].comm = "LOAD_CONST";
+            InitCommEx (rpn.slot[i].l, "LOAD_CONST");
             out[pc].param = j;
             strcpy (out[pc].comment, "None");
 
-            PrintPrefix (rpn.slot[i].l);
-            out[pc].comm = "RETURN_VALUE";
+            InitCommEx (rpn.slot[i].l, "RETURN_VALUE");
             return;
          }
       }
