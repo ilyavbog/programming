@@ -96,6 +96,8 @@ typedef enum KEYWORD_ {
    TRUE,
    FALSE,
    BREAK,
+	DEF,
+   RETURN,
    USUALLY
 } KEYWORD;
 
@@ -120,6 +122,7 @@ typedef struct STR_LIST_
 #define F_WHILE  0x10
 #define F_IF     0x20
 #define F_ELSE   0x40
+#define F_DEF    0x80
 typedef struct LEX_EX_
 {
    LEX      *l;
@@ -172,7 +175,7 @@ typedef struct INDENT_STACK_
 
 #define Add2List(list,str) \
 do {                             \
-   strcpy (list.s[list.n], str); \
+   list.s[list.n] = str;         \
    list.n++;                     \
 } while (0)
 

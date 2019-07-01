@@ -7,24 +7,20 @@
 LEX in[] = {
 //   #include "code_test.inc"
 //   #include "function1.inc"
-//   #include "token1.inc"
+   #include "token1.inc"
 //   #include "token2.inc"
-//   #include "function1.inc"
+//   #include "token2.inc"
 //   #include "token3.inc"
 //   #include "token4.inc"
-   #include "token5.inc"
+//   #include "token5.inc"
 //   #include "token6.inc"
+//   #include "token9.inc"
 };
 
 BYTECODE *out;
 
 static FUNCTIONS_TABLE ft;
-static unsigned currentFunction = 0;
-
-#define constList  (ft.consts)
-#define globalList (ft.entry[currentFunction].global)
-#define localList  (ft.entry[currentFunction].local)
-
+static unsigned cf = 0;
 
 static void InitFunTab(FUNCTIONS_TABLE *functionsTable)
 {
@@ -40,6 +36,8 @@ static void InitFunTab(FUNCTIONS_TABLE *functionsTable)
    functionsTable->consts.s = malloc (sizeof(char *) * MAX_OF_CONST);
    functionsTable->consts.n = 0;
    assert (functionsTable->consts.s);
+
+   functionsTable->n = 1;
 }
 static void FreeFunTab(FUNCTIONS_TABLE *functionsTable)
 {
@@ -66,86 +64,20 @@ PC_STACK pcStack = {buf7, 0};
 KEYWORD buf8[32];
 INDENT_STACK indentStack = {buf8, 0};
 
-static unsigned DefHendler (unsigned i)
-{
-   unsigned rv, indentCount;
 
-   i++;
-
-   printf ("%u\t", in[i].line);
-   printf ("LOAD_CONST         \t %u ('%s')\n", constList.n, in[i].string);
-   printf ("LOAD_CONST         \t %u ('%s')\n", constList.n+1, in[i].string);
-   printf ("MAKE_FUNCTION      \t 0\n");
-   printf ("STORE_NAME         \t %u (%s)\n", constList.n, in[i].string);
-
-   Add2List(constList, in[i].string);
-   Add2List(constList, in[i].string);
-   Add2List(globalList, in[i].string);
-
-   /* formal parameters */
-   for (; in[i].type != OP || in[i].op != RPAR; i++)
-      if (in[i].type == NAME)
-         Add2List(localList, in[i].string);
-   for (; in[i].type != INDENT; i++);
-   indentCount = 1;
-
-   rv = i;
-
-   for (i++; indentCount != 0; i++)
-   {
-      if (in[i].type == INDENT)
-         indentCount++;
-      else if (in[i].type == DEDENT)
-         indentCount--;
-      else if (in[i].type == NAME)
-      {
-         if (in[i+1].type == OP)
-            switch (in[i+1].op)
-            {
-               case LPAR:  /* go to next line */
-                  for (i++; in[i].type != NEWLINE; i++);
-                  break;
-               case LSQB:  /* skip array item */
-               {
-                  unsigned sqbCount = 1;
-                  for (i+=2; sqbCount; i++)
-                     if (in[i].type == OP)
-                     {
-                        if (in[i].op == RSQB)
-                           sqbCount--;
-                        else if (in[i].op == LSQB)
-                           sqbCount++;
-                     }
-                  break;
-               }
-               case RPAR:
-               case COMMA: /* Save name */
-                  Add2List(localList, in[i].string);
-                  break;
-               case EQUAL: /* Save name and go to next line */
-                  Add2List(localList, in[i].string);
-                  for (i++; in[i].type != NEWLINE; i++);
-                  break;
-            }
-      }
-   }
-
-   return rv;
-}
-
-#define RecodeAndPush(key) \
-do {                       \
-   in[i].type = KWORD;     \
-   in[i].op = key;         \
-   Push(rpn, lexEx);       \
+#define RecodeAndPush(s,key) \
+do {                         \
+   in[i].type = KWORD;       \
+   in[i].op = key;           \
+   Push(s, lexEx);           \
 } while(0)
 
 static void Step1 (void)
 {
    unsigned i;
    unsigned indentCount;
-   bool local, leftPart = true, forLoop = false, whileLoop = false, ifFlag = false,
-        elseFlag = false;
+   bool leftPart = true, forLoop = false, whileLoop = false, ifFlag = false,
+        elseFlag = false, defFlag = false;
    LEX_EX lexEx;
    int flags = 0;
 
@@ -194,41 +126,48 @@ static void Step1 (void)
          case NAME:
             if (strcmp (in[i].string, "def") == 0)
             {
-               i = DefHendler (i);
-               local = true;
+               RecodeAndPush(rpn, DEF);
+               defFlag = true;
+               break;
+            }
+            if (strcmp (in[i].string, "return") == 0)
+            {
+               if (in[i+1].type != ENDMARKER)
+               {
+                  RecodeAndPush(stack, RETURN);
+                  leftPart = false;
+               }
                break;
             }
             else if (strcmp (in[i].string, "for") == 0)
             {
-               RecodeAndPush(FOR);
+               RecodeAndPush(rpn, FOR);
                forLoop = true;
                break;
             }
             else if (strcmp (in[i].string, "in") == 0)
             {
-               in[i].type = KWORD;
-               in[i].op = IN;
-               Push(stack, lexEx);
+               RecodeAndPush(stack, IN);
                leftPart = false;
                break;
             }
             else if (strcmp (in[i].string, "while") == 0)
             {
-               RecodeAndPush(WHILE);
+               RecodeAndPush(rpn, WHILE);
                whileLoop = true;
                leftPart = false;
                break;
             }
             else if (strcmp (in[i].string, "if") == 0)
             {
-               RecodeAndPush(IF);
+               RecodeAndPush(rpn, IF);
                ifFlag = true;
                leftPart = false;
                break;
             }
             else if (strcmp (in[i].string, "elif") == 0)
             {
-               RecodeAndPush(ELIF);
+               RecodeAndPush(rpn, ELIF);
                ifFlag = true;
                elseFlag = true;
                leftPart = false;
@@ -236,7 +175,7 @@ static void Step1 (void)
             }
             else if (strcmp (in[i].string, "else") == 0)
             {
-               RecodeAndPush(ELSE);
+               RecodeAndPush(rpn, ELSE);
                elseFlag = true;
                leftPart = false;
                break;
@@ -251,7 +190,7 @@ static void Step1 (void)
             }
             else if (strcmp (in[i].string, "break") == 0)
             {
-               RecodeAndPush(BREAK);
+               RecodeAndPush(rpn, BREAK);
                leftPart = false;
                break;
             }
@@ -336,6 +275,11 @@ static void Step1 (void)
                lexEx.flags |= F_ELSE;
                elseFlag = false;
             }
+            else if (defFlag)
+            {
+               lexEx.flags |= F_DEF;
+               defFlag = false;
+            }
          case DEDENT:
             Push(rpn, lexEx);
             break;
@@ -364,18 +308,18 @@ static int GetNameIndex (STR str, bool def, bool *local)
 
    if (def)
    {
-      for (i=0; i<localList.n; i++)
-         if (strcmp (localList.s[i], str) == 0)
+      for (i=0; i<ft.entry[cf].local.n; i++)
+         if (strcmp (ft.entry[cf].local.s[i], str) == 0)
          {
             *local = true;
             return i;
          }
    }
-   for (i=0; i<globalList.n; i++)
-      if (strcmp (globalList.s[i], str) == 0)
+   for (i=0; i<ft.entry[cf].global.n; i++)
+      if (strcmp (ft.entry[cf].global.s[i], str) == 0)
          return i;
-   globalList.s[i] = str;
-   globalList.n++;
+   ft.entry[cf].global.s[i] = str;
+   ft.entry[cf].global.n++;
    return i;
 }
 
@@ -421,8 +365,8 @@ static void Load (LEX *lex, bool def)
    InitComm (lex);
    switch (lex->type)
    {
-      case NUMBER: case STRING:
-         j = GetConstIndex (&constList, lex->string);
+      case NUMBER: case STRING: case KWORD:
+         j = GetConstIndex (&ft.consts, lex->string);
          out[pc].comm = "LOAD_CONST";
          out[pc].param = j;
          strcpy (out[pc].comment, lex->string);
@@ -459,12 +403,104 @@ do {                                                               \
    out[pc].label = lable_;                                           \
 } while(0)
 
+static unsigned DefHendler (unsigned i)
+{
+   unsigned rv, indentCount;
+
+   label = false;
+
+   i++;
+
+   assert (rpn.slot[i].l->type == NAME);
+   InitCommEx (rpn.slot[i].l, "LOAD_CONST");
+   out[pc].param = ft.consts.n;
+   strcpy (out[pc].comment, rpn.slot[i].l->string);
+
+   InitCommEx (rpn.slot[i].l, "LOAD_CONST");
+   out[pc].param = ft.consts.n+1;
+   strcpy (out[pc].comment, rpn.slot[i].l->string);
+
+   InitCommEx (rpn.slot[i].l, "MAKE_FUNCTION");
+
+   InitCommEx (rpn.slot[i].l, "STORE_NAME");
+   out[pc].param = ft.entry[0].global.n;
+   strcpy (out[pc].comment, rpn.slot[i].l->string);
+
+   Add2List(ft.consts, rpn.slot[i].l->string);
+   Add2List(ft.consts, rpn.slot[i].l->string);
+   Add2List(ft.entry[0].global, rpn.slot[i].l->string);
+
+   /* start body function */
+   cf = ft.n;
+   ft.entry[cf].name = rpn.slot[i].l->string;
+   i++;
+
+   ft.entry[cf].local.s = malloc (sizeof(char *) * MAX_OF_LOCAL);
+   ft.entry[cf].local.n = 0;
+   assert (ft.entry[cf].local.s);
+
+   ft.entry[cf].global.s = malloc (sizeof(char *) * MAX_OF_GLOBAL);
+   ft.entry[cf].global.n = 0;
+   assert (ft.entry[cf].global.s);
+
+   /* formal parameters */
+   for (; rpn.slot[i].l->type != FUNCTION; i++)
+      if (rpn.slot[i].l->type == NAME)
+         Add2List(ft.entry[cf].local, rpn.slot[i].l->string);
+   for (; rpn.slot[i].l->type != NEWLINE; i++);
+   newLine = true;
+   indentCount = 0;
+
+   rv = i;
+
+   for (i++; indentCount != 0; i++)
+   {
+      if (in[i].type == INDENT)
+         indentCount++;
+      else if (in[i].type == DEDENT)
+         indentCount--;
+      else if (in[i].type == NAME)
+      {
+         if (in[i+1].type == OP)
+            switch (in[i+1].op)
+            {
+               case LPAR:  /* go to next line */
+                  for (i++; in[i].type != NEWLINE; i++);
+                  break;
+               case LSQB:  /* skip array item */
+               {
+                  unsigned sqbCount = 1;
+                  for (i+=2; sqbCount; i++)
+                     if (in[i].type == OP)
+                     {
+                        if (in[i].op == RSQB)
+                           sqbCount--;
+                        else if (in[i].op == LSQB)
+                           sqbCount++;
+                     }
+                  break;
+               }
+               case RPAR:
+               case COMMA: /* Save name */
+                  Add2List(ft.entry[cf].local, in[i].string);
+                  break;
+               case EQUAL: /* Save name and go to next line */
+                  Add2List(ft.entry[cf].local, in[i].string);
+                  for (i++; in[i].type != NEWLINE; i++);
+                  break;
+            }
+      }
+   }
+   ft.n++;
+
+   return rv;
+}
+
 static void Step2(void)
 {
    unsigned i;
    int j;
    bool def = false;
-   bool local;
    char *nameType;
 
    newLine = true;
@@ -621,6 +657,17 @@ static void Step2(void)
                case BREAK:
                   InitCommEx (rpn.slot[i].l, "BREAK_LOOP");
                   break;
+               case DEF:
+                  i = DefHendler (i);
+                  Push(indentStack, DEF);
+                  def = true;
+                  break;
+               case RETURN:
+                  InitCommEx (rpn.slot[i].l, "RETURN_VALUE");
+                  break;
+               case TRUE:
+                  Load(rpn.slot[i].l, def);
+                  break;
             }
             break;
 
@@ -633,6 +680,8 @@ static void Step2(void)
                Push(indentStack, IF);
             else if (rpn.slot[i].flags & F_ELSE)
                Push(indentStack, ELSE);
+            else if (rpn.slot[i].flags & F_DEF)
+               Push(indentStack, DEF);
             else
                Push(indentStack, USUALLY);
             break;
@@ -720,6 +769,26 @@ static void Step2(void)
                }
             }
 
+            else if (Tos(indentStack) == DEF)             /* end of function body */
+            {
+               if (rpn.slot[i-1].l->type == KWORD && rpn.slot[i-1].l->op == RETURN)
+               {
+                  unsigned j;
+                  newLine = false;
+                  j = GetConstIndex (&ft.consts, "None");
+                  InitCommEx (rpn.slot[i].l, "LOAD_CONST");
+                  out[pc].param = j;
+                  strcpy (out[pc].comment, "None");
+
+                  InitCommEx (rpn.slot[i].l, "RETURN_VALUE");
+               }
+               def = false;
+
+               InitCommEx (rpn.slot[i].l, "END_OF_FUNCTION_BODY");
+
+               cf = 0;
+            }
+
             newLine = true;
             label = true;         /* set label for next command */
             Pop(indentStack);
@@ -754,7 +823,7 @@ static void Step2(void)
             unsigned j;
 
             newLine = false;
-            j = GetConstIndex (&constList, "None");
+            j = GetConstIndex (&ft.consts, "None");
             InitCommEx (rpn.slot[i].l, "LOAD_CONST");
             out[pc].param = j;
             strcpy (out[pc].comment, "None");
@@ -776,7 +845,7 @@ int main(void)
 
    Step1();
 //   PrintRPN();
-//   return 0;
+//  return 0;
 
    out = malloc (1024*sizeof(BYTECODE));
    assert(out);
@@ -803,39 +872,76 @@ static void PrintResult(void)
 {
    unsigned i;
 
+   cf = 0;
+
    for (i=0; i<=pc; i++)
    {
-      if (out[i].line != -1)
-         printf ("\n%3d", out[i].line);
-      else
-         printf ("   ");
-
-      if (out[i].label)
-         printf ("%7s", ">>");
-      else
-         printf ("%7s", " ");
-
-      printf ("%5u %-23s", 2*out[i].pc, out[i].comm);
-
-      if (out[i].param != -1)
+      if (strcmp (out[i].comm, "END_OF_FUNCTION_BODY") == 0)
       {
-         printf ("%3u", out[i].param);
-         if (out[i].comment[0])
-            printf (" (%s)", out[i].comment);
+         unsigned j;
+
+         cf++;
+
+         printf ("   name '%s'\n", ft.entry[cf].name);
+
+         printf ("   names (");
+         if (ft.entry[cf].global.n)
+         {
+            for (j=0; j<ft.entry[cf].global.n-1; j++)
+               printf ("'%s', ", ft.entry[cf].global.s[j]);
+            printf ("'%s'", ft.entry[cf].global.s[j]);
+         }
+         printf (")\n");
+
+         printf ("   varnames (");
+         if (ft.entry[cf].local.n)
+         {
+            for (j=0; j<ft.entry[cf].local.n-1; j++)
+               printf ("'%s', ", ft.entry[cf].local.s[j]);
+            printf ("'%s'", ft.entry[cf].local.s[j]);
+         }
+         printf (")\n");
+
+         printf ("\n**************** END_OF_FUNCTION_BODY ****************\n\n");
       }
-      printf ("\n");
+      else
+      {
+         if (out[i].line != -1)
+            printf ("\n%3d", out[i].line);
+         else
+            printf ("   ");
+
+         if (out[i].label)
+            printf ("%7s", ">>");
+         else
+            printf ("%7s", " ");
+
+         printf ("%5u %-23s", 2*out[i].pc, out[i].comm);
+
+         if (out[i].param != -1)
+         {
+            printf ("%3u", out[i].param);
+            if (out[i].comment[0])
+               printf (" (%s)", out[i].comment);
+         }
+         printf ("\n");
+      }
    }
 
+   cf = 0;
+
+   printf ("   name '%s'\n", ft.entry[cf].name);
+
    printf ("   consts\n");
-   for (i=0; i<constList.n; i++)
-      printf ("      %s\n", constList.s[i]);
+   for (i=0; i<ft.consts.n; i++)
+      printf ("      %s\n", ft.consts.s[i]);
 
    printf ("   names (");
-   if (globalList.n)
+   if (ft.entry[cf].global.n)
    {
-      for (i=0; i<globalList.n-1; i++)
-         printf ("'%s', ", globalList.s[i]);
-      printf ("'%s'", globalList.s[i]);
+      for (i=0; i<ft.entry[cf].global.n-1; i++)
+         printf ("'%s', ", ft.entry[cf].global.s[i]);
+      printf ("'%s'", ft.entry[cf].global.s[i]);
    }
    printf (")\n");
 }
