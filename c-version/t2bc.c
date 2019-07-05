@@ -12,16 +12,46 @@ LEX in[] = {
 //   #include "function1.inc"
 //   #include "token3.inc"
 //   #include "token4.inc"
-//   #include "token5.inc"
-   #include "token6.inc"
+   #include "token5.inc"
+//   #include "token6.inc"
 };
 
 BYTECODE *out;
 
-char *buf1[128], *buf2[128], *buf3[128];
-STR_LIST constList = {buf1, 0};
-STR_LIST globalList = {buf2, 0};
-STR_LIST localList = {buf3, 0};
+static FUNCTIONS_TABLE ft;
+static unsigned currentFunction = 0;
+
+#define constList  (ft.consts)
+#define globalList (ft.entry[currentFunction].global)
+#define localList  (ft.entry[currentFunction].local)
+
+
+static void InitFunTab(FUNCTIONS_TABLE *functionsTable)
+{
+   functionsTable->entry[0].name = "Main";
+   functionsTable->entry[0].local.s = malloc (sizeof(char *) * MAX_OF_LOCAL);
+   functionsTable->entry[0].local.n = 0;
+   assert (functionsTable->entry[0].local.s);
+
+   functionsTable->entry[0].global.s = malloc (sizeof(char *) * MAX_OF_GLOBAL);
+   functionsTable->entry[0].global.n = 0;
+   assert (functionsTable->entry[0].global.s);
+
+   functionsTable->consts.s = malloc (sizeof(char *) * MAX_OF_CONST);
+   functionsTable->consts.n = 0;
+   assert (functionsTable->consts.s);
+}
+static void FreeFunTab(FUNCTIONS_TABLE *functionsTable)
+{
+   unsigned i;
+
+   for (i=0; i<functionsTable->n; i++)
+   {
+      free (functionsTable->entry[i].local.s);
+      free (functionsTable->entry[i].global.s);
+   }
+   free (functionsTable->consts.s);
+}
 
 LEX_EX buf4[512], buf5[128];
 LEX_STACK rpn = {buf4, 0};
@@ -742,6 +772,8 @@ int main(void)
 {
    unsigned i;
 
+   InitFunTab(&ft);
+
    Step1();
 //   PrintRPN();
 //   return 0;
@@ -751,6 +783,7 @@ int main(void)
    Step2();
    PrintResult();
    free (out);
+   FreeFunTab(&ft);
 
    return 0;
 }

@@ -195,3 +195,21 @@ typedef struct BYTECODE_ {
    char comment[32];
    bool label;
 } BYTECODE;
+
+typedef struct FUNCTION_ENTRY_ {
+   char     *name;
+   STR_LIST local;
+   STR_LIST global;
+} FUNCTION_ENTRY;
+
+#define MAX_OF_FUNC   128
+#define MAX_OF_LOCAL  128
+#define MAX_OF_GLOBAL 128
+#define MAX_OF_CONST  128
+
+typedef struct FUNCTIONS_TABLE_ {
+   FUNCTION_ENTRY entry[MAX_OF_FUNC];
+   unsigned       n;
+   STR_LIST       consts;
+} FUNCTIONS_TABLE;
+
